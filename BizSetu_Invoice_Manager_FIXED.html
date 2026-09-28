@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BizSetu Invoice Manager</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f6f8;color:#18212b}
+header{background:#18212b;color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}header h1{margin:0;font-size:22px}header span{font-size:13px;opacity:.8}
+.container{max-width:1100px;margin:24px auto;padding:0 15px}.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:18px;box-shadow:0 2px 10px #00000012}
+h2{font-size:18px;margin:0 0 15px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}label{font-size:12px;font-weight:bold;display:block;margin-bottom:5px;color:#53606c}
+input,select,textarea{width:100%;padding:10px;border:1px solid #d6dce1;border-radius:7px;font-size:14px}textarea{resize:vertical}.full{grid-column:1/-1}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:9px;border-bottom:1px solid #e7ebee;text-align:left;font-size:13px}th{background:#f6f8fa}td input{padding:7px}
+.btn{border:0;border-radius:7px;padding:10px 15px;font-weight:bold;cursor:pointer}.primary{background:#18212b;color:#fff}.secondary{background:#e9eef2}.danger{background:#ffe7e7;color:#a11}
+.actions{display:flex;gap:10px;flex-wrap:wrap}.summary{max-width:380px;margin-left:auto}.summary div{display:flex;justify-content:space-between;padding:6px 0}.total{font-size:18px;font-weight:bold;border-top:2px solid #18212b;margin-top:5px;padding-top:10px}
+@media(max-width:650px){.grid{grid-template-columns:1fr}.full{grid-column:auto}header{display:block}.summary{max-width:none}}
+@media print{body{background:#fff}.no-print{display:none!important}.card{box-shadow:none;border-radius:0;padding:8px}.container{margin:0;max-width:none}header{background:#fff;color:#000;border-bottom:1px solid #ddd}}
+</style></head><body>
+<header><h1>BizSetu Invoice Manager</h1><span>GST • Tax • Registrations • MCA • Business Services</span></header>
+<div class="container">
+<div class="card"><h2>Your Business Details</h2><div class="grid">
+<div><label>Business Name</label><input id="bizName" value="BizSetu Compliance"></div><div><label>GSTIN</label><input id="bizGSTIN" placeholder="Optional"></div>
+<div><label>Mobile</label><input id="bizMobile" placeholder="Your mobile number"></div><div><label>Email</label><input id="bizEmail" placeholder="Your email"></div>
+<div class="full"><label>Business Address</label><textarea id="bizAddress" rows="2"></textarea></div></div></div>
+<div class="card"><h2>Invoice Details</h2><div class="grid">
+<div><label>Invoice Number</label><input id="invoiceNo"></div><div><label>Invoice Date</label><input id="invoiceDate" type="date"></div>
+<div><label>Client Name</label><input id="clientName"></div><div><label>Client GSTIN</label><input id="clientGSTIN" placeholder="Optional"></div>
+<div><label>Client Mobile</label><input id="clientMobile"></div><div><label>Client Email</label><input id="clientEmail"></div>
+<div class="full"><label>Client Address</label><textarea id="clientAddress" rows="2"></textarea></div></div></div>
+<div class="card"><h2>Services</h2>
+<table>
+<thead><tr><th style="width:40%">Service</th><th>Qty</th><th>Rate (₹)</th><th>Tax %</th><th>Amount</th><th></th></tr></thead>
+<tbody id="items"></tbody>
+</table>
+<br>
+<div class="actions no-print">
+<button class="btn secondary" type="button" onclick="addItem()">＋ Add Service</button>
+<button class="btn secondary" type="button" onclick="addCustomService()">＋ Custom Service</button><span style="font-size:12px;color:#66737f;align-self:center">Select a preset to load its price, or type your own price in Rate.</span>
+</div>
+<div class="summary">
+<div><span>Subtotal</span><strong id="subtotal">₹0.00</strong></div>
+<div><span>CGST</span><strong id="cgst">₹0.00</strong></div>
+<div><span>SGST</span><strong id="sgst">₹0.00</strong></div>
+<div><span>IGST</span><strong id="igst">₹0.00</strong></div>
+<div class="total"><span>Grand Total</span><strong id="grand">₹0.00</strong></div>
+</div></div>
+<div class="card"><h2>Notes / Payment Details</h2><textarea id="notes" rows="4" placeholder="Bank details, UPI, payment terms, thank-you note, etc."></textarea></div>
+<div class="card no-print"><div class="actions"><button class="btn primary" onclick="window.print()">🖨️ Print / Save PDF</button><button class="btn secondary" onclick="saveInvoice()">💾 Save Invoice</button><button class="btn secondary" onclick="newInvoice()">＋ New Invoice</button></div><p id="status" style="font-size:12px;color:#64707b"></p></div>
+</div>
+<script>
+const services=[
+["GST Registration",3000],
+["FSSAI Registration",1000],
+["MSME Registration",500],
+["Gumasta Registration",1500],
+["GST Return Filing",0],
+["PAN Application",0],
+["Firm Registration",0],
+["Company Registration",0],
+["MCA Compliance",0],
+["Government Portal Services",0],
+["Consultancy Charges",0]
+];
+const $=id=>document.getElementById(id);
+function today(){return new Date().toISOString().slice(0,10)}
+function nextNo(){let n=Number(localStorage.getItem("bizsetu_seq")||0)+1;localStorage.setItem("bizsetu_seq",n);return "BS-"+new Date().getFullYear()+"-"+String(n).padStart(3,"0")}
+
+function serviceOptions(selected){
+ let out='<option value="">Select service</option>';
+ services.forEach((s,i)=>out+='<option value="'+i+'" '+(selected===s[0]?'selected':'')+'>'+s[0]+'</option>');
+ out+='<option value="custom" '+(selected==="custom"?'selected':'')+'>Custom Service</option>';
+ return out;
+}
+
+function addItem(d={}){
+ const tr=document.createElement("tr");
+ const selected=d.service||"";
+ tr.innerHTML='<td><select class="service">'+serviceOptions(selected)+'</select><input class="customName" style="display:none;margin-top:6px" placeholder="Enter service name"></td>'+
+ '<td><input class="qty" type="number" min="0" step="1" value="'+(d.qty||1)+'"></td>'+
+ '<td><input class="rate" type="number" min="0" step="0.01" value="'+(d.rate!==undefined?d.rate:0)+'"></td>'+
+ '<td><input class="tax" type="number" min="0" step="0.01" value="'+(d.tax!==undefined?d.tax:18)+'"></td>'+
+ '<td class="amount">₹0.00</td>'+
+ '<td><button class="btn danger no-print" type="button" onclick="this.parentElement.parentElement.remove();calc()">×</button></td>';
+ $("items").appendChild(tr);
+
+ const sel=tr.querySelector(".service");
+ const custom=tr.querySelector(".customName");
+ const rate=tr.querySelector(".rate");
+
+ function updateService(){
+   if(sel.value==="custom"){
+     custom.style.display="block";
+     custom.value=d.customName||"";
+   }else{
+     custom.style.display="none";
+     const idx=Number(sel.value);
+     if(Number.isInteger(idx)&&services[idx]) rate.value=services[idx][1];
+   }
+   calc();
+ }
+ sel.addEventListener("change",updateService);
+ custom.addEventListener("input",calc);
+ tr.querySelectorAll("input").forEach(x=>x.addEventListener("input",calc));
+
+ if(selected==="custom") {sel.value="custom"; custom.style.display="block"; custom.value=d.customName||"";}
+ else if(selected){let idx=services.findIndex(x=>x[0]===selected);if(idx>=0)sel.value=String(idx);}
+ calc();
+}
+
+function addCustomService(){
+ addItem({service:"custom",customName:"",qty:1,rate:0,tax:18});
+ const rows=document.querySelectorAll("#items tr");
+ rows[rows.length-1].querySelector(".customName").focus();
+}
+
+function calc(){
+ let sub=0,tax=0;
+ document.querySelectorAll("#items tr").forEach(r=>{
+   let q=+r.querySelector(".qty").value||0;
+   let rate=+r.querySelector(".rate").value||0;
+   let t=+r.querySelector(".tax").value||0;
+   let amount=q*rate;
+   sub+=amount;
+   tax+=amount*t/100;
+   r.querySelector(".amount").textContent=money(amount);
+ });
+ $("subtotal").textContent=money(sub);
+ $("cgst").textContent=money(tax/2);
+ $("sgst").textContent=money(tax/2);
+ $("igst").textContent=money(0);
+ $("grand").textContent=money(sub+tax);
+}
+
+function money(n){return "₹"+Number(n).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})}
+function calc(){let sub=0,tax=0;document.querySelectorAll("#items tr").forEach(r=>{let q=+r.querySelector(".qty").value||0,rate=+r.querySelector(".rate").value||0,t=+r.querySelector(".tax").value||0,a=q*rate;sub+=a;tax+=a*t/100;r.querySelector(".amount").textContent=money(a)});$("subtotal").textContent=money(sub);$("cgst").textContent=money(tax/2);$("sgst").textContent=money(tax/2);$("grand").textContent=money(sub+tax)}
+function data(){
+ return {
+  bizName:$("bizName").value,bizGSTIN:$("bizGSTIN").value,bizMobile:$("bizMobile").value,bizEmail:$("bizEmail").value,bizAddress:$("bizAddress").value,
+  invoiceNo:$("invoiceNo").value,invoiceDate:$("invoiceDate").value,
+  clientName:$("clientName").value,clientGSTIN:$("clientGSTIN").value,clientMobile:$("clientMobile").value,clientEmail:$("clientEmail").value,clientAddress:$("clientAddress").value,notes:$("notes").value,
+  items:[...document.querySelectorAll("#items tr")].map(r=>{
+    const sel=r.querySelector(".service");
+    return {
+      service:sel.value==="custom"?"custom":(services[Number(sel.value)]?.[0]||""),
+      customName:sel.value==="custom"?r.querySelector(".customName").value:"",
+      qty:r.querySelector(".qty").value,rate:r.querySelector(".rate").value,tax:r.querySelector(".tax").value
+    };
+  })
+ };
+}
+function safeGet(key,fallback){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback}catch(e){return fallback}}
+function safeSet(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){return false}}
+function nextNo(){let n=Number(localStorage.getItem("bizsetu_seq")||0)+1;try{localStorage.setItem("bizsetu_seq",String(n))}catch(e){}return "BS-"+new Date().getFullYear()+"-"+String(n).padStart(3,"0")}
+function saveInvoice(){
+  const d=data();
+  if(!d.invoiceNo){$("status").textContent="Please enter an invoice number.";return}
+  if(safeSet("invoice_"+d.invoiceNo,d)){
+    $("status").textContent="✓ Invoice saved on this device: "+d.invoiceNo;
+  }else{
+    $("status").textContent="⚠️ Invoice could not be saved in this browser.";
+  }
+}
+function newInvoice(){
+ ["clientName","clientGSTIN","clientMobile","clientEmail","clientAddress","notes"].forEach(x=>$(x).value="");
+ $("invoiceNo").value=nextNo();$("invoiceDate").value=today();$("items").innerHTML="";addItem();$("status").textContent="";
+}
+
+// Initial invoice
+$("invoiceNo").value=nextNo();
+$("invoiceDate").value=today();
+$("items").innerHTML="";
+addItem({service:"",qty:1,rate:0,tax:18});
+</script>
+<datalist id="serviceList"><option>GST Registration</option><option>GST Return Filing</option><option>PAN Application</option><option>Firm Registration</option><option>Company Registration</option><option>MCA Compliance</option><option>Government Portal Services</option><option>Consultancy Charges</option><option>Other Service</option></datalist>
+</body></html>
